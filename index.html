@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Мои запросы - AccessRequest</title>
+  <link rel="stylesheet" href="styles.css">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+  <header class="header">
+    <div class="brand">AccessRequest</div>
+    <nav class="nav" id="nav">
+      <a href="index.html" class="active">Мои запросы</a>
+      <a href="create.html">Создать запрос</a>
+      <a href="admin.html" id="adminLink" style="display:none;">Админ-панель</a>
+      <span class="user-info" id="userInfo"></span>
+      <button id="logoutBtn" class="nav-link">Выйти</button>
+    </nav>
+  </header>
+
+  <main class="container">
+    <div class="page-title-row">
+      <div>
+        <h1>Мои запросы доступа</h1>
+        <p class="subtitle">Созданные запросы и их текущие состояния</p>
+      </div>
+      <a href="create.html" class="button">Создать запрос</a>
+    </div>
+
+    <div class="filter-bar">
+      <div class="form-group">
+        <label for="filterStatus">Статус</label>
+        <select id="filterStatus">
+          <option value="">Все статусы</option>
+          <option value="Новый">Новый</option>
+          <option value="На согласовании">На согласовании</option>
+          <option value="Одобрен">Одобрен</option>
+          <option value="Отклонён">Отклонён</option>
+          <option value="Выполнен">Выполнен</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label for="filterType">Тип ресурса</label>
+        <select id="filterType">
+          <option value="">Все типы</option>
+        </select>
+      </div>
+      <button class="button button-secondary" id="resetFilters">Сбросить</button>
+    </div>
+
+    <div id="requestList">
+      <p>Загрузка...</p>
+    </div>
+  </main>
+
+  <div id="toast" class="toast"></div>
+
+  <script src="config.js"></script>
+  <script src="app.js"></script>
+  <script>
+    // Загрузка списка запросов
+    async function loadRequests() {
+      const listContainer = document.getElementById('requestList');
+      listContainer.innerHTML = '<p>Загрузка...</p>';
+
+      try {
+        const session = await checkAuth();
+        if (!session) {
+          window.location.href = 'login.html';
+          return;
+        }
+
+        const profile = await getProfile(session.user.id);
+        if (!profile) {
+          showToast('Профиль не найден', 'error');
+          return;
+        }
+
+        document.getElementById('userInfo').textContent = `${profile.full_name} (${profile.role})`;
+        if (profile.role === 'admin') {
+          document.getElementById('adminLink').style.display = 'inline-block';
+        }
+
+        // Загрузка типов ресурсов для фильтра
+        const { data: types, error: typesError } = await supabaseClient
+          .from('resource_types')
+          .select('id, name');
+
+        if (typesError) throw typesError;
+
+        const typeSelect = document.getElementById('filterType');
+        // Очищаем, кроме первого option
+        while (typeSelect.options.length > 1) {
+          typeSelect.remove(1);
+        }
+        types.forEach(type => {
+          const option = document.createElement('option');
+          option.value = type.id;
+          option.textContent = type.name;
+          typeSelect.appendChild(option);
+        });
+
+        // Загрузка запросов
+        let query = supabaseClient
+          .from('access_requests')
+          .select('*, resource_types(name)')
+          .order('created_at', { ascending: false });
+
+        if (profile.role !== 'admin') {
+          query = query.eq('user_id', session.user.id);
+        }
+
+        const { data: requests, error } = await query;
+
+        if (error) throw error;
+
+        // Применение фильтров
+        const statusFilter = document.getElementById('filterStatus').value;
+        const typeFilter = document.getElementById('filterType').value;
+
+        let filtered = requests || [];
+        if (statusFilter) {
+          filtered = filtered.filter(r => r.status === statusFilter);
+        }
+        if (typeFilter) {
+          filtered = filtered.filter(r => r.resource_type_id == typeFilter);
+        }
+
+        if (filtered.length === 0) {
+          listContainer.innerHTML = `
+            <div class="empty-state">
+              <h2>Запросов пока нет</h2>
+              <p>Создайте первый запрос доступа, чтобы он появился в этом списке</p>
+              <a href="create.html" class="button">Создать первый запрос</a>
+            </div>
+          `;
+          return;
+        }
+
+        listContainer.innerHTML = filtered.map(req => `
+          <div class="card" onclick="window.location.href='detail.html?id=${req.id}'">
+            <h3>№${req.number}. ${escapeHtml(req.resource_name)}</h3>
+            <div class="card-meta">
+              <span>${escapeHtml(req.resource_types?.name || 'Неизвестно')}</span>
+              <span class="status status-${getStatusClass(req.status)}">${req.status}</span>
+              <span>${formatDate(req.created_at)}</span>
+            </div>
+          </div>
+        `).join('');
+
+      } catch (error) {
+        console.error(error);
+        showToast('Ошибка загрузки данных: ' + (error.message || 'неизвестная ошибка'), 'error');
+        listContainer.innerHTML = '<p>Произошла ошибка при загрузке. Попробуйте обновить страницу.</p>';
+      }
+    }
+
+    // Обработчики фильтров
+    document.getElementById('filterStatus').addEventListener('change', loadRequests);
+    document.getElementById('filterType').addEventListener('change', loadRequests);
+    document.getElementById('resetFilters').addEventListener('click', () => {
+      document.getElementById('filterStatus').value = '';
+      document.getElementById('filterType').value = '';
+      loadRequests();
+    });
+
+    // Выход
+    document.getElementById('logoutBtn').addEventListener('click', async () => {
+      await supabaseClient.auth.signOut();
+      window.location.href = 'login.html';
+    });
+
+    // Загрузка при старте
+    loadRequests();
+  </script>
+</body>
+</html>

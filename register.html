@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Регистрация - AccessRequest</title>
+  <link rel="stylesheet" href="styles.css">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+  <header class="header">
+    <div class="brand">AccessRequest</div>
+  </header>
+
+  <main class="container">
+    <div class="login-container">
+      <h1>Регистрация</h1>
+      <form id="registerForm">
+        <div class="form-group">
+          <label for="fullName">Имя *</label>
+          <input type="text" id="fullName" required>
+        </div>
+        <div class="form-group">
+          <label for="email">Email *</label>
+          <input type="email" id="email" required>
+        </div>
+        <div class="form-group">
+          <label for="password">Пароль * (мин. 8 символов)</label>
+          <input type="password" id="password" required minlength="8">
+        </div>
+        <div class="form-group">
+          <label for="passwordConfirm">Подтверждение пароля *</label>
+          <input type="password" id="passwordConfirm" required minlength="8">
+        </div>
+        <div class="actions">
+          <button type="submit" class="button">Зарегистрироваться</button>
+        </div>
+      </form>
+      <div class="login-footer">
+        Уже есть аккаунт? <a href="login.html">Войти</a>
+      </div>
+    </div>
+  </main>
+
+  <div id="toast" class="toast"></div>
+
+  <script src="config.js"></script>
+  <script src="app.js"></script>
+  <script>
+    console.log("Скрипт register.html загружен");
+
+    document.addEventListener('DOMContentLoaded', () => {
+      const form = document.getElementById('registerForm');
+      console.log("Форма регистрации найдена:", form);
+
+      if (form) {
+        form.addEventListener('submit', async (e) => {
+          e.preventDefault(); // ВАЖНО: отменяем перезагрузку
+          console.log("Кнопка 'Зарегистрироваться' нажата");
+
+          const fullName = document.getElementById('fullName').value.trim();
+          const email = document.getElementById('email').value.trim();
+          const password = document.getElementById('password').value;
+          const passwordConfirm = document.getElementById('passwordConfirm').value;
+
+          if (password !== passwordConfirm) {
+            showToast('Пароли не совпадают', 'error');
+            return;
+          }
+
+          console.log("Попытка регистрации:", email);
+
+          try {
+            const { data, error } = await supabaseClient.auth.signUp({
+              email,
+              password
+            });
+
+            if (error) {
+              console.error("Ошибка регистрации:", error);
+              showToast(error.message || 'Ошибка регистрации', 'error');
+              return;
+            }
+
+            console.log("Регистрация успешна, создаем профиль:", data);
+
+            // Создание профиля
+            const { error: profileError } = await supabaseClient
+              .from('profiles')
+              .insert([{
+                id: data.user.id,
+                full_name: fullName,
+                role: 'user',
+                email: email
+              }]);
+
+            if (profileError) {
+              console.error("Ошибка профиля:", profileError);
+              showToast('Ошибка создания профиля', 'error');
+              return;
+            }
+
+            showToast('Регистрация успешна! Войдите в систему', 'success');
+            setTimeout(() => {
+              window.location.href = 'login.html';
+            }, 1500);
+          } catch (err) {
+            console.error("Исключение:", err);
+          }
+        });
+      }
+    });
+  </script>
+</body>
+</html>

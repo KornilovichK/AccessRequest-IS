@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Вход - AccessRequest</title>
+  <link rel="stylesheet" href="styles.css">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+  <header class="header">
+    <div class="brand">AccessRequest</div>
+  </header>
+
+  <main class="container">
+    <div class="login-container">
+      <h1>Вход в систему</h1>
+      <form id="loginForm">
+        <div class="form-group">
+          <label for="email">Email</label>
+          <input type="email" id="email" required>
+        </div>
+        <div class="form-group">
+          <label for="password">Пароль</label>
+          <input type="password" id="password" required>
+        </div>
+        <div class="actions">
+          <button type="submit" class="button">Войти</button>
+        </div>
+      </form>
+      <div class="login-footer">
+        Нет аккаунта? <a href="register.html">Зарегистрироваться</a>
+      </div>
+    </div>
+  </main>
+
+  <div id="toast" class="toast"></div>
+
+  <script src="config.js"></script>
+  <script src="app.js"></script>
+  <script>
+    console.log("Скрипт login.html загружен");
+
+    // Ждем полной загрузки DOM
+    document.addEventListener('DOMContentLoaded', () => {
+      const form = document.getElementById('loginForm');
+      console.log("Форма найдена:", form);
+
+      if (form) {
+        form.addEventListener('submit', async (e) => {
+          e.preventDefault(); // ВАЖНО: отменяем перезагрузку страницы
+          console.log("Кнопка 'Войти' нажата");
+
+          const email = document.getElementById('email').value;
+          const password = document.getElementById('password').value;
+
+          console.log("Попытка входа с email:", email);
+
+          try {
+            const { data, error } = await supabaseClient.auth.signInWithPassword({
+              email,
+              password
+            });
+
+            if (error) {
+              console.error("Ошибка входа:", error);
+              showToast('Неверный email или пароль', 'error');
+              return;
+            }
+
+            console.log("Вход успешен:", data);
+            showToast('Вход выполнен успешно', 'success');
+            setTimeout(() => {
+              window.location.href = 'index.html';
+            }, 1000);
+          } catch (err) {
+            console.error("Исключение:", err);
+            showToast('Произошла ошибка', 'error');
+          }
+        });
+      }
+    });
+  </script>
+</body>
+</html>

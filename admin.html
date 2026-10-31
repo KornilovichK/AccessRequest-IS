@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Админ-панель - AccessRequest</title>
+  <link rel="stylesheet" href="styles.css">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+  <header class="header">
+    <div class="brand">AccessRequest</div>
+    <nav class="nav">
+      <a href="index.html">Мои запросы</a>
+      <a href="create.html">Создать запрос</a>
+      <a href="admin.html" class="active">Админ-панель</a>
+      <span class="user-info" id="userInfo"></span>
+      <button id="logoutBtn">Выйти</button>
+    </nav>
+  </header>
+
+  <main class="container">
+    <h1>Административная панель</h1>
+    <p class="subtitle">Аналитика и статистика системы</p>
+
+    <div class="stats-grid" id="statsGrid">
+      <div class="stat-card">
+        <h3>Всего запросов</h3>
+        <div class="stat-value" id="totalRequests">-</div>
+      </div>
+      <div class="stat-card">
+        <h3>Пользователей</h3>
+        <div class="stat-value" id="totalUsers">-</div>
+      </div>
+      <div class="stat-card">
+        <h3>За 30 дней</h3>
+        <div class="stat-value" id="recentRequests">-</div>
+      </div>
+      <div class="stat-card">
+        <h3>Выполнено</h3>
+        <div class="stat-value" id="completedRequests">-</div>
+      </div>
+    </div>
+
+    <div class="chart-container">
+      <h2>Запросы по статусам</h2>
+      <div id="statusChart"></div>
+    </div>
+
+    <div class="chart-container">
+      <h2>Запросы по типам ресурсов</h2>
+      <div id="typeChart"></div>
+    </div>
+
+    <div class="filter-bar">
+      <div class="form-group">
+        <label for="adminFilterStatus">Фильтр по статусу</label>
+        <select id="adminFilterStatus">
+          <option value="">Все статусы</option>
+          <option value="Новый">Новый</option>
+          <option value="На согласовании">На согласовании</option>
+          <option value="Одобрен">Одобрен</option>
+          <option value="Отклонён">Отклонён</option>
+          <option value="Выполнен">Выполнен</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label for="adminFilterPeriod">Период</label>
+        <select id="adminFilterPeriod">
+          <option value="30">Последние 30 дней</option>
+          <option value="90">Последние 90 дней</option>
+          <option value="365">Последний год</option>
+          <option value="all">Всё время</option>
+        </select>
+      </div>
+      <button class="button button-secondary" id="applyFilters">Применить</button>
+    </div>
+  </main>
+
+  <div id="toast" class="toast"></div>
+
+  <script src="config.js"></script>
+  <script src="app.js"></script>
+  <script>
+    async function loadAdminData() {
+      try {
+        const session = await checkAuth();
+        if (!session) {
+          window.location.href = 'login.html';
+          return;
+        }
+
+        const profile = await getProfile(session.user.id);
+        if (!profile || profile.role !== 'admin') {
+          showToast('Доступ запрещён', 'error');
+          window.location.href = 'index.html';
+          return;
+        }
+
+        document.getElementById('userInfo').textContent = `${profile.full_name} (admin)`;
+
+        const period = document.getElementById('adminFilterPeriod').value;
+        const statusFilter = document.getElementById('adminFilterStatus').value;
+
+        // Загрузка всех запросов
+        let query = supabase
+          .from('access_requests')
+          .select('*, resource_types(name)');
+
+        if (statusFilter) {
+          query = query.eq('status', statusFilter);
+        }
+
+        if (period !== 'all') {
+          const daysAgo = new Date();
+          daysAgo.setDate(daysAgo.getDate() - parseInt(period));
+          query = query.gte('created_at', daysAgo.toISOString());
+        }
+
+        const { data: requests, error } = await query.order('created_at', { ascending: false });
+
+        if (error) throw error;
+
+        // Статистика
+        document.getElementById('totalRequests').textContent = requests.length;
+
+        // Пользователи
+        const { count: userCount } = await supabase
+          .from('profiles')
+          .select('*', { count: 'exact', head: true });
+        document.getElementById('totalUsers').textContent = userCount || 0;
+
+        // За 30 дней
+        const thirtyDaysAgo = new Date();
+        thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+        const recentCount = requests.filter(r => new Date(r.created_at) >= thirtyDaysAgo).length;
+        document.getElementById('recentRequests').textContent = recentCount;
+
+        // Выполнено
+        const completedCount = requests.filter(r => r.status === 'Выполнен').length;
+        document.getElementById('completedRequests').textContent = completedCount;
+
+        // График по статусам
+        const statusCounts = {};
+        requests.forEach(r => {
+          statusCounts[r.status] = (statusCounts[r.status] || 0) + 1;
+        });
+
+        const statusChart = document.getElementById('statusChart');
+        const maxStatus = Math.max(...Object.values(statusCounts), 1);
+        statusChart.innerHTML = Object.entries(statusCounts).map(([status, count]) => `
+          <div class="chart-bar">
+            <div class="chart-bar-label">
+              <span>${status}</span>
+              <span>${count}</span>
+            </div>
+            <div class="chart-bar-fill" style="width: ${(count / maxStatus) * 100}%"></div>
+          </div>
+        `).join('');
+
+        // График по типам
+        const typeCounts = {};
+        requests.forEach(r => {
+          const typeName = r.resource_types?.name || 'Неизвестно';
+          typeCounts[typeName] = (typeCounts[typeName] || 0) + 1;
+        });
+
+        const typeChart = document.getElementById('typeChart');
+        const maxType = Math.max(...Object.values(typeCounts), 1);
+        typeChart.innerHTML = Object.entries(typeCounts).map(([type, count]) => `
+          <div class="chart-bar">
+            <div class="chart-bar-label">
+              <span>${type}</span>
+              <span>${count}</span>
+            </div>
+            <div class="chart-bar-fill" style="width: ${(count / maxType) * 100}%; background: #28a745;"></div>
+          </div>
+        `).join('');
+
+      } catch (error) {
+        console.error(error);
+        showToast('Ошибка загрузки данных', 'error');
+      }
+    }
+
+    document.getElementById('applyFilters').addEventListener('click', loadAdminData);
+    document.getElementById('logoutBtn').addEventListener('click', async () => {
+      await supabase.auth.signOut();
+      window.location.href = 'login.html';
+    });
+
+    loadAdminData();
+  </script>
+</body>
+</html>
